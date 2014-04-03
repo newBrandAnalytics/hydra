@@ -54,7 +54,7 @@ class DBKeyCoder<V extends Codec.BytesCodable> implements KeyCoder<DBKey, V> {
                 case LEGACY:
                     return codec.encode(value);
                 case SPARSE:
-                    return value.bytesEncode();
+                    return value.bytesEncode(encodeType.ordinal());
                 default:
                     throw new RuntimeException("UNKNOWN ENCODING TYPE: " + encodeType);
             }
@@ -77,7 +77,7 @@ class DBKeyCoder<V extends Codec.BytesCodable> implements KeyCoder<DBKey, V> {
                     return codec.decode(clazz.newInstance(), value);
                 case SPARSE:
                     V v = clazz.newInstance();
-                    v.bytesDecode(value);
+                    v.bytesDecode(value, encodeType.ordinal());
                     return v;
                 default:
                     throw new RuntimeException("UNKNOWN ENCODING TYPE: " + encodeType);

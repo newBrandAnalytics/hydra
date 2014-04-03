@@ -34,7 +34,7 @@ public class SimpleIntKeyCoder implements KeyCoder<Integer, DBIntValue> {
 
     @Override
     public byte[] valueEncode(DBIntValue value, ENCODE_TYPE encodeType) {
-        return value.bytesEncode();
+        return value.bytesEncode(encodeType.ordinal());
     }
 
     @Override
@@ -45,7 +45,7 @@ public class SimpleIntKeyCoder implements KeyCoder<Integer, DBIntValue> {
     @Override
     public DBIntValue valueDecode(byte[] value, ENCODE_TYPE encodeType) {
         DBIntValue dbIntValue = new DBIntValue();
-        dbIntValue.bytesDecode(value);
+        dbIntValue.bytesDecode(value, encodeType.ordinal());
         return dbIntValue;
     }
 

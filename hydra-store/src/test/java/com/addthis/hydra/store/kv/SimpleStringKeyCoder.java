@@ -30,7 +30,7 @@ class SimpleStringKeyCoder implements KeyCoder<String, DBValue> {
 
     @Override
     public byte[] valueEncode(DBValue value, ENCODE_TYPE encodeType) {
-        return value.bytesEncode();
+        return value.bytesEncode(encodeType.ordinal());
     }
 
     @Override
