@@ -208,13 +208,13 @@ public class DiskBackedMap<T extends DiskBackedMap.DiskObject> implements Map<St
         }
 
         @Override
-        public byte[] bytesEncode() {
+        public byte[] bytesEncode(long version) {
             preEncode();
             return bytes;
         }
 
         @Override
-        public void bytesDecode(byte[] b) {
+        public void bytesDecode(byte[] b, long version) {
             bytes = b;
             postDecode();
         }
