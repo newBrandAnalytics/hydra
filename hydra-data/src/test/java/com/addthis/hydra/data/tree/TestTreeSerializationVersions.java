@@ -16,11 +16,8 @@ package com.addthis.hydra.data.tree;
 import java.io.File;
 import java.io.IOException;
 
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CyclicBarrier;
 
-import com.addthis.basis.test.SlowTest;
 import com.addthis.basis.util.Files;
 
 import com.addthis.hydra.data.tree.prop.DataTime;
@@ -29,17 +26,12 @@ import com.addthis.hydra.store.skiplist.LegacyPage;
 import com.addthis.hydra.store.skiplist.Page;
 
 import org.junit.Test;
-import org.junit.experimental.categories.Category;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class TestTreeSerializationVersions {
-
-    private static final Logger log = LoggerFactory.getLogger(TestTreeSerializationVersions.class);
 
     private static final CloseOperation close = CloseOperation.TEST;
 
@@ -108,7 +100,7 @@ public class TestTreeSerializationVersions {
              * Use the new page encoding.
              */
             for (int i = 0; i < 1000; i += 2) {
-                ConcurrentTreeNode node = tree.getOrCreateNode(root, Integer.toString(i), null);
+                ConcurrentTreeNode node = tree.getNode(root, Integer.toString(i), true);
                 assertNotNull(node);
                 assertEquals(Integer.toString(i), node.getName());
                 node.setCounter(1);
