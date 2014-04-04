@@ -14,11 +14,11 @@ public class DataTimeTest extends TestCase {
         long last = first + 100000;
         time.setFirst(first);
         time.setLast(last);
-        byte[] encoded = time.bytesEncode(KeyCoder.ENCODE_TYPE.SPARSE.ordinal());
+        byte[] encoded = time.bytesEncode(KeyCoder.EncodeType.SPARSE.ordinal());
         CodecBin2 codec = new CodecBin2();
         byte[] codecEncoded = codec.encode(time);
         DataTime timeDecoded = new DataTime();
-        timeDecoded.bytesDecode(encoded, KeyCoder.ENCODE_TYPE.SPARSE.ordinal());
+        timeDecoded.bytesDecode(encoded, KeyCoder.EncodeType.SPARSE.ordinal());
         assertTrue(timeDecoded.getValue("first").asLong().getLong() == time.getValue("first").asLong().getLong());
         assertTrue(timeDecoded.getValue("last").asLong().getLong() == time.getValue("last").asLong().getLong());
         assertTrue(encoded.length < codecEncoded.length);

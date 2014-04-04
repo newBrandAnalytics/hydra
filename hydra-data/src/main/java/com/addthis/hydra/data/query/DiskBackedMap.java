@@ -27,6 +27,7 @@ import java.util.Set;
 import com.addthis.codec.Codec;
 import com.addthis.hydra.store.db.DBKey;
 import com.addthis.hydra.store.db.PageDB;
+import com.addthis.hydra.store.skiplist.Page;
 
 import org.apache.commons.io.FileUtils;
 
@@ -76,7 +77,8 @@ public class DiskBackedMap<T extends DiskBackedMap.DiskObject> implements Map<St
         }
 
         try {
-            db = new PageDB(diskStoragePathFile, CodableDiskObject.class, "DiskBackedMap.db", 1000, 1000, 1, false);
+            db = new PageDB.Builder<>(diskStoragePathFile, CodableDiskObject.class, 1000, 1000)
+                    .dbname("DiskBackedMap.db").kvStoreType(1).build();
             db.setCacheMem(cacheSize);
         } catch (IOException e) {
             throw new RuntimeException(e);
