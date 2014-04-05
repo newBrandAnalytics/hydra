@@ -56,19 +56,20 @@ public class TestTreeSerializationVersions {
     public void testUpgradePath() throws Exception {
         File dir = makeTemporaryDirectory();
         try {
+            int count = 1000;
             ConcurrentTree tree = new ConcurrentTree.Builder(dir, false).kvStoreType(1).
                     pageFactory(LegacyPage.LegacyPageFactory.singleton).build();
             ConcurrentTreeNode root = tree.getRootNode();
             /**
              * write 1000 nodes that have a time data attachment. Use the legacy page encoding.
              */
-            for (int i = 0; i < 1000; i++) {
+            for (int i = 0; i < count; i++) {
                 ConcurrentTreeNode node = tree.getOrCreateNode(root, Integer.toString(i), null);
                 assertNotNull(node);
                 assertEquals(Integer.toString(i), node.getName());
                 DataTime attachment = new DataTime();
                 attachment.setFirst(i);
-                attachment.setLast(i + 1000);
+                attachment.setLast(i + count);
                 node.createMap().put("time", attachment);
                 node.markChanged();
                 node.release();
@@ -79,7 +80,7 @@ public class TestTreeSerializationVersions {
             /**
              * Sanity check. Read the 1000 notes and look for the data attachment.
              */
-            for (int i = 0; i < 1000; i++) {
+            for (int i = 0; i < count; i++) {
                 ConcurrentTreeNode node = tree.getNode(root, Integer.toString(i), true);
                 assertNotNull(node);
                 assertEquals(1, node.getLeaseCount());
@@ -89,7 +90,7 @@ public class TestTreeSerializationVersions {
                 assertTrue(attachments.containsKey("time"));
                 DataTime attachment = (DataTime) attachments.get("time");
                 assertEquals(i, attachment.first());
-                assertEquals(i + 1000, attachment.last());
+                assertEquals(i + count, attachment.last());
                 node.release();
             }
             tree.close(false, close);
@@ -99,14 +100,14 @@ public class TestTreeSerializationVersions {
              * Only on even nodes update the data attachment.
              * Use the new page encoding.
              */
-            for (int i = 0; i < 1000; i += 2) {
+            for (int i = 0; i < count; i += 2) {
                 ConcurrentTreeNode node = tree.getNode(root, Integer.toString(i), true);
-                assertNotNull(node);
+                assertNotNull("i = " + i, node);
                 assertEquals(Integer.toString(i), node.getName());
                 node.setCounter(1);
                 DataTime attachment = new DataTime();
                 attachment.setFirst(2 * i);
-                attachment.setLast(2 * i + 1000);
+                attachment.setLast(2 * i + count);
                 node.createMap().put("time", attachment);
                 node.markChanged();
                 node.release();
@@ -117,7 +118,7 @@ public class TestTreeSerializationVersions {
             /**
              * Read all the nodes and verify that the data attachments are correct.
              */
-            for (int i = 0; i < 1000; i++) {
+            for (int i = 0; i < count; i++) {
                 ConcurrentTreeNode node = tree.getNode(root, Integer.toString(i), true);
                 assertNotNull(node);
                 assertEquals(1, node.getLeaseCount());
@@ -128,10 +129,10 @@ public class TestTreeSerializationVersions {
                 DataTime attachment = (DataTime) attachments.get("time");
                 if (i % 2 == 0) {
                     assertEquals(2 * i, attachment.first());
-                    assertEquals(2 * i + 1000, attachment.last());
+                    assertEquals(2 * i + count, attachment.last());
                 } else {
                     assertEquals(i, attachment.first());
-                    assertEquals(i + 1000, attachment.last());
+                    assertEquals(i + count, attachment.last());
                 }
                 node.release();
             }
