@@ -61,7 +61,7 @@ public class TestTreeSerializationVersions {
                     pageFactory(LegacyPage.LegacyPageFactory.singleton).build();
             ConcurrentTreeNode root = tree.getRootNode();
             /**
-             * write 1000 nodes that have a time data attachment. Use the legacy page encoding.
+             * write count nodes that have a time data attachment. Use the legacy page encoding.
              */
             for (int i = 0; i < count; i++) {
                 ConcurrentTreeNode node = tree.getOrCreateNode(root, Integer.toString(i), null);
@@ -78,7 +78,7 @@ public class TestTreeSerializationVersions {
             tree = new ConcurrentTree.Builder(dir, false).kvStoreType(1).
                     pageFactory(Page.DefaultPageFactory.singleton).build();
             /**
-             * Sanity check. Read the 1000 notes and look for the data attachment.
+             * Sanity check. Read the count notes and look for the data attachment.
              */
             for (int i = 0; i < count; i++) {
                 ConcurrentTreeNode node = tree.getNode(root, Integer.toString(i), true);

@@ -213,9 +213,7 @@ public class Page<K, V extends Codec.BytesCodable> {
                 byte[] rawVal = rawValues.get(i);
 
                 if (rawVal == null || encodeType != KeyCoder.EncodeType.SPARSE) {
-                    if (rawVal != null) {
-                        values.set(i, keyCoder.valueDecode(rawVal, encodeType));
-                    }
+                    fetchValue(i);
                     rawVal = keyCoder.valueEncode(values.get(i), KeyCoder.EncodeType.SPARSE);
                 }
 
