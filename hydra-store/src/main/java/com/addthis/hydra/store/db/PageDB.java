@@ -110,16 +110,19 @@ public class PageDB<V extends Codec.BytesCodable> implements IPageDB<DBKey, V> {
     }
 
     public PageDB(File dir, Class<? extends V> clazz, int maxPageSize, int maxPages) throws IOException {
-        this(dir, clazz, defaultDbName, maxPageSize, maxPages, defaultKeyValueStoreType, false, null);
+        this(dir, clazz, defaultDbName, maxPageSize, maxPages,
+                defaultKeyValueStoreType, false, Page.DefaultPageFactory.singleton);
     }
 
     public PageDB(File dir, Class<? extends V> clazz, int maxPageSize, int maxPages, boolean readonly) throws IOException {
-        this(dir, clazz, defaultDbName, maxPageSize, maxPages, defaultKeyValueStoreType, readonly, null);
+        this(dir, clazz, defaultDbName, maxPageSize, maxPages,
+                defaultKeyValueStoreType, readonly, Page.DefaultPageFactory.singleton);
     }
 
     public PageDB(File dir, Class<? extends V> clazz, String dbname, int maxPageSize,
             int maxPages, boolean readonly) throws IOException {
-        this(dir, clazz, dbname, maxPageSize, maxPages, defaultKeyValueStoreType, readonly, null);
+        this(dir, clazz, dbname, maxPageSize, maxPages, defaultKeyValueStoreType,
+                readonly, Page.DefaultPageFactory.singleton);
     }
 
     public PageDB(File dir, Class<? extends V> clazz, String dbname, int maxPageSize,
