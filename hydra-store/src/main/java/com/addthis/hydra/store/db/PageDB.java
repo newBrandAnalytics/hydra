@@ -103,6 +103,12 @@ public class PageDB<V extends Codec.BytesCodable> implements IPageDB<DBKey, V> {
 
     }
 
+    protected PageDB(boolean readonly, PagedKeyValueStore<DBKey, V> eps, DBKeyCoder<V> keyCoder) {
+        this.readonly = readonly;
+        this.eps = eps;
+        this.keyCoder = keyCoder;
+    }
+
     public PageDB(File dir, Class<? extends V> clazz, int maxPageSize, int maxPages) throws IOException {
         this(dir, clazz, defaultDbName, maxPageSize, maxPages, defaultKeyValueStoreType, false, null);
     }
