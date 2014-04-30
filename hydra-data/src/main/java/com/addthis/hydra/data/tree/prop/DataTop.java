@@ -13,6 +13,8 @@
  */
 package com.addthis.hydra.data.tree.prop;
 
+import java.io.UnsupportedEncodingException;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Map.Entry;
 
 import com.addthis.basis.util.Strings;
+import com.addthis.basis.util.Varint;
 
 import com.addthis.bundle.value.ValueFactory;
 import com.addthis.bundle.value.ValueObject;
@@ -32,6 +35,14 @@ import com.addthis.hydra.data.tree.TreeDataParameters;
 import com.addthis.hydra.data.tree.TreeNodeData;
 import com.addthis.hydra.data.tree.TreeNodeDataDeferredOperation;
 import com.addthis.hydra.data.util.KeyTopper;
+import com.addthis.hydra.store.kv.KeyCoder;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.Unpooled;
 
 /**
  *         <p/>
@@ -129,10 +140,10 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
         public DataTop newInstance() {
             DataTop dt = new DataTop();
             if (hit > 0) {
-                dt.topHit = new KeyTopper().init().setLossy(lossy);
+                dt.topHit = new KeyTopper();
             }
             if (node > 0) {
-                dt.topNode = new KeyTopper().init().setLossy(lossy);
+                dt.topNode = new KeyTopper();
             }
             if (recent > 0) {
                 dt.recent = new Recent();
@@ -152,6 +163,8 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
     private int limits[];
 
     private boolean increment;
+
+    private static final Logger log = LoggerFactory.getLogger(DataTop.class);
 
     @Override
     public boolean updateChildData(DataTreeNodeUpdater state, DataTreeNode childNode, Config conf) {
@@ -291,6 +304,90 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
             add(item);
             if (size() > maxsize) {
                 removeFirst();
+            }
+        }
+    }
+
+    @Override
+    public byte[] bytesEncode(long version) {
+        byte[] bytes = null;
+        ByteBuf buf = PooledByteBufAllocator.DEFAULT.buffer();
+        String key = null;
+        try {
+            byte[] topHitBytes = topHit.bytesEncode(version);
+            Varint.writeUnsignedVarInt(topHitBytes.length, buf);
+            buf.writeBytes(topHitBytes);
+            byte[] topNodeBytes = topNode.bytesEncode(version);
+            Varint.writeUnsignedVarInt(topNodeBytes.length, buf);
+            buf.writeBytes(topNodeBytes);
+            int recentSize = recent.size();
+            Varint.writeUnsignedVarInt(recentSize, buf);
+            for(String element : recent) {
+                key = element;
+                byte[] keyBytes = element.getBytes("UTF-8");
+                Varint.writeUnsignedVarInt(keyBytes.length, buf);
+                buf.writeBytes(keyBytes);
+            }
+            Varint.writeSignedVarInt(limits.length, buf);
+            for(int i = 0; i < limits.length; i++) {
+                Varint.writeSignedVarInt(limits[i], buf);
+            }
+            bytes = new byte[buf.readableBytes()];
+            buf.readBytes(bytes);
+        } catch (UnsupportedEncodingException e) {
+            log.error("Unexpected error while encoding \"" + key + "\"", e);
+            throw new RuntimeException(e);
+        } finally {
+            buf.release();
+        }
+        return bytes;
+    }
+
+    @Override
+    public void bytesDecode(byte[] b, long version) {
+        if (version < KeyCoder.EncodeType.KEYTOPPER.ordinal()) {
+            try {
+                codec.decode(this, b);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        } else {
+            topHit = new KeyTopper();
+            topNode = new KeyTopper();
+            recent = new Recent();
+            ByteBuf buf = Unpooled.wrappedBuffer(b);
+            byte[] keybytes = null;
+            try {
+                int topBytesLength = Varint.readUnsignedVarInt(buf);
+                if (topBytesLength > 0) {
+                    byte[] topBytes = new byte[topBytesLength];
+                    buf.readBytes(topBytes);
+                    topHit.bytesDecode(topBytes, version);
+                }
+                topBytesLength = Varint.readUnsignedVarInt(buf);
+                if (topBytesLength > 0) {
+                    byte[] topBytes = new byte[topBytesLength];
+                    buf.readBytes(topBytes);
+                    topNode.bytesDecode(topBytes, version);
+                }
+                int elements = Varint.readUnsignedVarInt(buf);
+                for(int i = 0; i < elements; i++) {
+                    int keyLength = Varint.readUnsignedVarInt(buf);
+                    keybytes = new byte[keyLength];
+                    buf.readBytes(keybytes);
+                    String key = new String(keybytes, "UTF-8");
+                    recent.add(key);
+                }
+                elements = Varint.readUnsignedVarInt(buf);
+                limits = new int[elements];
+                for (int i = 0; i < elements; i++) {
+                    limits[i] = Varint.readSignedVarInt(buf);
+                }
+            } catch (UnsupportedEncodingException e) {
+                log.error("Unexpected error while decoding \"" + keybytes + "\"", e);
+                throw new RuntimeException(e);
+            } finally {
+                buf.release();
             }
         }
     }
