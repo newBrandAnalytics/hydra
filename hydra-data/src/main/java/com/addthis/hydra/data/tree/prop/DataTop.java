@@ -332,10 +332,10 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
                     buf.writeBytes(keyBytes);
                 }
             }
-            Varint.writeSignedVarInt(limits == null ? 0 : limits.length, buf);
+            Varint.writeUnsignedVarInt(limits == null ? 0 : limits.length, buf);
             if (limits != null) {
                 for (int i = 0; i < limits.length; i++) {
-                    Varint.writeSignedVarInt(limits[i], buf);
+                    Varint.writeUnsignedVarInt(limits[i], buf);
                 }
             }
             bytes = new byte[buf.readableBytes()];
@@ -390,7 +390,7 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
                 if (elements > 0) {
                     limits = new int[elements];
                     for (int i = 0; i < elements; i++) {
-                        limits[i] = Varint.readSignedVarInt(buf);
+                        limits[i] = Varint.readUnsignedVarInt(buf);
                     }
                 }
             } catch (UnsupportedEncodingException e) {
