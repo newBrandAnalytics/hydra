@@ -308,29 +308,35 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
         }
     }
 
+    private static byte[] empty = new byte[0];
+
     @Override
     public byte[] bytesEncode(long version) {
         byte[] bytes = null;
         ByteBuf buf = PooledByteBufAllocator.DEFAULT.buffer();
         String key = null;
         try {
-            byte[] topHitBytes = topHit.bytesEncode(version);
+            byte[] topHitBytes = (topHit == null) ? empty : topHit.bytesEncode(version);
             Varint.writeUnsignedVarInt(topHitBytes.length, buf);
             buf.writeBytes(topHitBytes);
-            byte[] topNodeBytes = topNode.bytesEncode(version);
+            byte[] topNodeBytes = (topNode == null) ? empty : topNode.bytesEncode(version);
             Varint.writeUnsignedVarInt(topNodeBytes.length, buf);
             buf.writeBytes(topNodeBytes);
-            int recentSize = recent.size();
+            int recentSize = (recent == null) ? 0 : recent.size();
             Varint.writeUnsignedVarInt(recentSize, buf);
-            for(String element : recent) {
-                key = element;
-                byte[] keyBytes = element.getBytes("UTF-8");
-                Varint.writeUnsignedVarInt(keyBytes.length, buf);
-                buf.writeBytes(keyBytes);
+            if (recent != null) {
+                for (String element : recent) {
+                    key = element;
+                    byte[] keyBytes = element.getBytes("UTF-8");
+                    Varint.writeUnsignedVarInt(keyBytes.length, buf);
+                    buf.writeBytes(keyBytes);
+                }
             }
-            Varint.writeSignedVarInt(limits.length, buf);
-            for(int i = 0; i < limits.length; i++) {
-                Varint.writeSignedVarInt(limits[i], buf);
+            Varint.writeSignedVarInt(limits == null ? 0 : limits.length, buf);
+            if (limits != null) {
+                for (int i = 0; i < limits.length; i++) {
+                    Varint.writeSignedVarInt(limits[i], buf);
+                }
             }
             bytes = new byte[buf.readableBytes()];
             buf.readBytes(bytes);
@@ -352,36 +358,40 @@ public class DataTop extends TreeNodeData<DataTop.Config> implements Codec.Codab
                 throw new RuntimeException(e);
             }
         } else {
-            topHit = new KeyTopper();
-            topNode = new KeyTopper();
-            recent = new Recent();
             ByteBuf buf = Unpooled.wrappedBuffer(b);
             byte[] keybytes = null;
             try {
                 int topBytesLength = Varint.readUnsignedVarInt(buf);
                 if (topBytesLength > 0) {
+                    topHit = new KeyTopper();
                     byte[] topBytes = new byte[topBytesLength];
                     buf.readBytes(topBytes);
                     topHit.bytesDecode(topBytes, version);
                 }
                 topBytesLength = Varint.readUnsignedVarInt(buf);
                 if (topBytesLength > 0) {
+                    topNode = new KeyTopper();
                     byte[] topBytes = new byte[topBytesLength];
                     buf.readBytes(topBytes);
                     topNode.bytesDecode(topBytes, version);
                 }
                 int elements = Varint.readUnsignedVarInt(buf);
-                for(int i = 0; i < elements; i++) {
-                    int keyLength = Varint.readUnsignedVarInt(buf);
-                    keybytes = new byte[keyLength];
-                    buf.readBytes(keybytes);
-                    String key = new String(keybytes, "UTF-8");
-                    recent.add(key);
+                if (elements > 0) {
+                    recent = new Recent();
+                    for (int i = 0; i < elements; i++) {
+                        int keyLength = Varint.readUnsignedVarInt(buf);
+                        keybytes = new byte[keyLength];
+                        buf.readBytes(keybytes);
+                        String key = new String(keybytes, "UTF-8");
+                        recent.add(key);
+                    }
                 }
                 elements = Varint.readUnsignedVarInt(buf);
-                limits = new int[elements];
-                for (int i = 0; i < elements; i++) {
-                    limits[i] = Varint.readSignedVarInt(buf);
+                if (elements > 0) {
+                    limits = new int[elements];
+                    for (int i = 0; i < elements; i++) {
+                        limits[i] = Varint.readSignedVarInt(buf);
+                    }
                 }
             } catch (UnsupportedEncodingException e) {
                 log.error("Unexpected error while decoding \"" + keybytes + "\"", e);
