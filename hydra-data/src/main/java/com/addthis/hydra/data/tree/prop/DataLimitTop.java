@@ -261,6 +261,8 @@ public class DataLimitTop extends TreeNodeData<DataLimitTop.Config> {
         if (version < KeyCoder.EncodeType.KEYTOPPER.ordinal()) {
             try {
                 codec.decode(this, b);
+            } catch (RuntimeException e) {
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
