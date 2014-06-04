@@ -1,5 +1,7 @@
 package com.addthis.hydra.data.tree.prop;
 
+import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
 import com.addthis.basis.util.ClosableIterator;
@@ -313,4 +315,44 @@ public class DataReservoirTest {
         assertEquals(-2, reservoir.retrieveCount(4));
     }
 
-}
+    private DataTreeNode retrieveNode(Iterator<DataTreeNode> iterator, String... names) {
+        if (names.length == 0) {
+            return null;
+        }
+        while (iterator.hasNext()) {
+            DataTreeNode node = iterator.next();
+            if (node.getName().equals(names[0])) {
+                if (names.length == 1) {
+                    return node;
+                } else {
+                    return retrieveNode(node.iterator(), Arrays.copyOfRange(names, 1, names.length));
+                }
+            }
+        }
+        return null;
+    }
+
+    private static final String[] GAUSSIAN_ERROR = {"subtree", "gaussian", "error"};
+    private static final String[] GEOMETRIC_ERROR = {"subtree", "geometric", "error"};
+
+    @Test
+    public void testModelFitting() {
+        DataReservoir reservoir = new DataReservoir();
+        reservoir.updateReservoir(1, 10, 0);
+        reservoir.updateReservoir(2, 10, 0);
+        reservoir.updateReservoir(3, 10, 0);
+        reservoir.updateReservoir(4, 10, 0);
+        reservoir.updateReservoir(5, 10, 0);
+        reservoir.updateReservoir(6, 10, 0);
+        reservoir.updateReservoir(7, 10, 0);
+        reservoir.updateReservoir(8, 10, 2);
+        reservoir.updateReservoir(9, 10, 1);
+        reservoir.updateReservoir(10, 10, 1);
+        List<DataTreeNode> result = reservoir.modelFitAnomalyDetection(10, 9, 50.0, true);
+        DataTreeNode gaussianError = retrieveNode(result.iterator(), GAUSSIAN_ERROR);
+        DataTreeNode geometricError = retrieveNode(result.iterator(), GEOMETRIC_ERROR);
+        System.out.println("Gaussian " + Double.longBitsToDouble(gaussianError.getCounter()));
+        System.out.println("Geometric " + Double.longBitsToDouble(geometricError.getCounter()));
+    }
+
+    }

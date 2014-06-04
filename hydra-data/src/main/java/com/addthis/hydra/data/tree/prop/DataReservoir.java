@@ -15,7 +15,9 @@ package com.addthis.hydra.data.tree.prop;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import java.math.RoundingMode;
 
@@ -32,6 +34,11 @@ import com.addthis.hydra.data.tree.TreeNodeData;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.math.DoubleMath;
+
+import org.apache.commons.math3.analysis.function.Gaussian;
+import org.apache.commons.math3.distribution.GeometricDistribution;
+import org.apache.commons.math3.fitting.GaussianCurveFitter;
+import org.apache.commons.math3.fitting.WeightedObservedPoint;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -321,10 +328,11 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         long targetEpoch = -1;
         int numObservations = -1;
         double sigma = Double.POSITIVE_INFINITY;
+        double percentile = Double.POSITIVE_INFINITY;
         boolean doubleToLongBits = false;
-        int measurement;
         int minMeasurement = Integer.MIN_VALUE;
         boolean raw = false;
+        String mode = "sigma";
         if (key == null) {
             return null;
         }
@@ -353,9 +361,146 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                     case "raw":
                         raw = Boolean.parseBoolean(kvvalue);
                         break;
+                    case "percentile":
+                        percentile = Double.parseDouble(kvvalue);
+                        break;
+                    case "mode":
+                        mode = kvvalue;
+                        break;
                 }
             }
         }
+        switch (mode) {
+            case "sigma":
+                return sigmaAnomalyDetection(targetEpoch, numObservations, sigma, doubleToLongBits, minMeasurement, raw);
+            case "modelfit":
+                return modelFitAnomalyDetection(targetEpoch, numObservations, percentile, doubleToLongBits);
+            default:
+                throw new RuntimeException("Unknown mode type '" + mode + "'");
+        }
+    }
+
+    private static void updateFrequencies(Map<Integer,Integer> frequencies, int value) {
+        Integer count = frequencies.get(value);
+        if (count == null) {
+            count = 0;
+        }
+        frequencies.put(value, count + 1);
+    }
+
+    private double gaussianEuclidianDistance(Gaussian.Parametric gaussianParametric,
+            double[] gaussianParameters, List<WeightedObservedPoint> observedPoints) {
+        double error = 0.0;
+        for (WeightedObservedPoint point : observedPoints) {
+            double expected = gaussianParametric.value(point.getX(), gaussianParameters);
+            double observed = point.getY();
+            System.out.println("Gaussian \t" + point.getX() + "\t" + point.getY()+ "\t" + expected);
+            error += Math.sqrt((expected - observed) * (expected - observed));
+        }
+        return error;
+    }
+
+    private double geometricEuclidianDistance(Map<Integer, Integer> frequencies, int numObservations, double mean) {
+        double error = 0.0;
+        GeometricDistribution distribution = new GeometricDistribution(1.0 / (1.0 + mean));
+        for (Map.Entry<Integer, Integer> entry : frequencies.entrySet()) {
+            int key = entry.getKey();
+            double expected = distribution.probability(key) * numObservations;
+            double observed = entry.getValue();
+            System.out.println("Geometric \t" + key + "\t" + observed + "\t" + expected);
+            error += Math.sqrt((expected - observed) * (expected - observed));
+        }
+        return error;
+    }
+
+    @VisibleForTesting
+    List<DataTreeNode> modelFitAnomalyDetection(long targetEpoch, int numObservations,
+            double percentile, boolean doubleToLongBits) {
+        int measurement = 0;
+        int count = 0;
+        int mode = -1;
+        int modeCount = -1;
+
+        /**
+         * Fitting to a geometric distribution uses the mean value of the sample.
+         *
+         * Fitting to a normal distribution uses the Apache Commons Math implementation.
+         */
+        double mean = 0.0;
+        Map<Integer,Integer> frequencies = new HashMap<>();
+        List<WeightedObservedPoint> observedPoints = new ArrayList<>(numObservations);
+
+        int index = reservoir.length - 1;
+        long currentEpoch = minEpoch + index;
+
+        while (currentEpoch != targetEpoch) {
+            index--;
+            currentEpoch--;
+        }
+
+        measurement = reservoir[index--];
+        currentEpoch--;
+
+        while (count < numObservations && index >= 0) {
+            int value = reservoir[index--];
+            updateFrequencies(frequencies, value);
+            count++;
+            double delta = value - mean;
+            mean += delta / count;
+        }
+
+        while (count < numObservations) {
+            int value = 0;
+            updateFrequencies(frequencies, value);
+            count++;
+            double delta = value - mean;
+            mean += delta / count;
+        }
+
+        for (Map.Entry<Integer,Integer> entry : frequencies.entrySet()) {
+            int element = entry.getKey();
+            int occurrences = entry.getValue();
+            if (occurrences > modeCount) {
+                modeCount = occurrences;
+                mode = element;
+            }
+            observedPoints.add(new WeightedObservedPoint(1.0, element, occurrences));
+        }
+
+        double[] gaussianParameters = GaussianCurveFitter.create().fit(observedPoints);
+        Gaussian.Parametric gaussianParametric = new Gaussian.Parametric();
+        double gaussianError = gaussianEuclidianDistance(gaussianParametric, gaussianParameters, observedPoints);
+        double geometricError = geometricEuclidianDistance(frequencies, numObservations, mean);
+
+        List<DataTreeNode> result = new ArrayList<>();
+        List<DataTreeNode> valuesChildren = new ArrayList<>();
+        List<DataTreeNode> gaussianChildren = new ArrayList<>();
+        List<DataTreeNode> geometricChildren = new ArrayList<>();
+
+        valuesChildren.add(new VirtualTreeNode("measurement", measurement));
+        valuesChildren.add(new VirtualTreeNode("mode", mode));
+        gaussianChildren.add(new VirtualTreeNode("norm", generateValue(gaussianParameters[0], doubleToLongBits)));
+        gaussianChildren.add(new VirtualTreeNode("mean", generateValue(gaussianParameters[1], doubleToLongBits)));
+        gaussianChildren.add(new VirtualTreeNode("stddev", generateValue(gaussianParameters[2], doubleToLongBits)));
+        gaussianChildren.add(new VirtualTreeNode("error", generateValue(gaussianError, doubleToLongBits)));
+        geometricChildren.add(new VirtualTreeNode("success", generateValue(1.0 / (1.0 + mean), doubleToLongBits)));
+        geometricChildren.add(new VirtualTreeNode("error", generateValue(geometricError, doubleToLongBits)));
+        VirtualTreeNode gaussianNode = new VirtualTreeNode("gaussian", 1L, gaussianChildren.toArray(new VirtualTreeNode[0]));
+        VirtualTreeNode geometricNode = new VirtualTreeNode("geometric", 1L, geometricChildren.toArray(new VirtualTreeNode[0]));
+        VirtualTreeNode valuesNode = new VirtualTreeNode("values", 1L, valuesChildren.toArray(new VirtualTreeNode[0]));
+        VirtualTreeNode[] subtreeChildren = new VirtualTreeNode[3];
+        subtreeChildren[0] = gaussianNode;
+        subtreeChildren[1] = geometricNode;
+        subtreeChildren[2] = valuesNode;
+        DataTreeNode subtree = new VirtualTreeNode("subtree", 1L, subtreeChildren);
+        result.add(subtree);
+        return result;
+    }
+
+    private List<DataTreeNode> sigmaAnomalyDetection(long targetEpoch, int numObservations, double sigma,
+            boolean doubleToLongBits, int minMeasurement, boolean raw) {
+
+        int measurement;
         if (targetEpoch < 0) {
             return makeDefaultNodes(raw, targetEpoch, numObservations);
         } else if (sigma == Double.POSITIVE_INFINITY) {
