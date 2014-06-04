@@ -332,8 +332,8 @@ public class DataReservoirTest {
         return null;
     }
 
-    private static final String[] GAUSSIAN_ERROR = {"subtree", "gaussian", "error"};
-    private static final String[] GEOMETRIC_ERROR = {"subtree", "geometric", "error"};
+    private static final String[] GAUSSIAN_ERROR = {"delta", "measurement", "mean", "stddev", "mode", "geometricError", "gaussianError"};
+    private static final String[] GEOMETRIC_ERROR = {"delta", "measurement", "mean", "stddev", "mode", "geometricError"};
 
     @Test
     public void testModelFitting() {
@@ -345,14 +345,30 @@ public class DataReservoirTest {
         reservoir.updateReservoir(5, 10, 0);
         reservoir.updateReservoir(6, 10, 0);
         reservoir.updateReservoir(7, 10, 0);
-        reservoir.updateReservoir(8, 10, 2);
+        reservoir.updateReservoir(8, 10, 0);
         reservoir.updateReservoir(9, 10, 1);
         reservoir.updateReservoir(10, 10, 1);
-        List<DataTreeNode> result = reservoir.modelFitAnomalyDetection(10, 9, 50.0, true);
+        List<DataTreeNode> result = reservoir.modelFitAnomalyDetection(10, 9, true, true, null);
         DataTreeNode gaussianError = retrieveNode(result.iterator(), GAUSSIAN_ERROR);
         DataTreeNode geometricError = retrieveNode(result.iterator(), GEOMETRIC_ERROR);
-        System.out.println("Gaussian " + Double.longBitsToDouble(gaussianError.getCounter()));
-        System.out.println("Geometric " + Double.longBitsToDouble(geometricError.getCounter()));
+        assertTrue(Double.longBitsToDouble(geometricError.getCounter()) <
+                   Double.longBitsToDouble(gaussianError.getCounter()));
+        reservoir = new DataReservoir();
+        reservoir.updateReservoir(1, 10, 10);
+        reservoir.updateReservoir(2, 10, 10);
+        reservoir.updateReservoir(3, 10, 10);
+        reservoir.updateReservoir(4, 10, 10);
+        reservoir.updateReservoir(5, 10, 10);
+        reservoir.updateReservoir(6, 10, 10);
+        reservoir.updateReservoir(7, 10, 10);
+        reservoir.updateReservoir(8, 10, 10);
+        reservoir.updateReservoir(9, 10, 9);
+        reservoir.updateReservoir(10, 10, 1);
+        result = reservoir.modelFitAnomalyDetection(10, 9, true, true, null);
+        gaussianError = retrieveNode(result.iterator(), GAUSSIAN_ERROR);
+        geometricError = retrieveNode(result.iterator(), GEOMETRIC_ERROR);
+        assertTrue(Double.longBitsToDouble(gaussianError.getCounter()) <
+                   Double.longBitsToDouble(geometricError.getCounter()));
     }
 
     }

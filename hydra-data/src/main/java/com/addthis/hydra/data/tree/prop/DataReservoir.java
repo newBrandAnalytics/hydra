@@ -36,9 +36,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.math.DoubleMath;
 
 import org.apache.commons.math3.analysis.function.Gaussian;
+import org.apache.commons.math3.distribution.ExponentialDistribution;
 import org.apache.commons.math3.distribution.GeometricDistribution;
-import org.apache.commons.math3.fitting.GaussianCurveFitter;
-import org.apache.commons.math3.fitting.WeightedObservedPoint;
+import org.apache.commons.math3.distribution.NormalDistribution;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -328,7 +328,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         long targetEpoch = -1;
         int numObservations = -1;
         double sigma = Double.POSITIVE_INFINITY;
-        double percentile = Double.POSITIVE_INFINITY;
+        double[] percentile = null;
         boolean doubleToLongBits = false;
         int minMeasurement = Integer.MIN_VALUE;
         boolean raw = false;
@@ -361,8 +361,12 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                     case "raw":
                         raw = Boolean.parseBoolean(kvvalue);
                         break;
-                    case "percentile":
-                        percentile = Double.parseDouble(kvvalue);
+                    case "percentiles":
+                        String[] components = kvvalue.split(",");
+                        percentile = new double[components.length];
+                        for (int i = 0; i < components.length; i++) {
+                            percentile[i] = Double.parseDouble(components[i]);
+                        }
                         break;
                     case "mode":
                         mode = kvvalue;
@@ -372,9 +376,9 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         }
         switch (mode) {
             case "sigma":
-                return sigmaAnomalyDetection(targetEpoch, numObservations, sigma, doubleToLongBits, minMeasurement, raw);
+                return sigmaAnomalyDetection(targetEpoch, numObservations, doubleToLongBits, raw, sigma, minMeasurement);
             case "modelfit":
-                return modelFitAnomalyDetection(targetEpoch, numObservations, percentile, doubleToLongBits);
+                return modelFitAnomalyDetection(targetEpoch, numObservations, doubleToLongBits, raw, percentile);
             default:
                 throw new RuntimeException("Unknown mode type '" + mode + "'");
         }
@@ -388,14 +392,15 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         frequencies.put(value, count + 1);
     }
 
-    private double gaussianEuclidianDistance(Gaussian.Parametric gaussianParametric,
-            double[] gaussianParameters, List<WeightedObservedPoint> observedPoints) {
+    private double gaussianEuclidianDistance(Map<Integer, Integer> frequencies, int numObservations,
+            double mean, double stddev) {
         double error = 0.0;
-        for (WeightedObservedPoint point : observedPoints) {
-            double expected = gaussianParametric.value(point.getX(), gaussianParameters);
-            double observed = point.getY();
-            System.out.println("Gaussian \t" + point.getX() + "\t" + point.getY()+ "\t" + expected);
-            error += Math.sqrt((expected - observed) * (expected - observed));
+        Gaussian distribution = new Gaussian(mean, stddev);
+        for (Map.Entry<Integer, Integer> entry : frequencies.entrySet()) {
+            int key = entry.getKey();
+            double expected = distribution.value(key);
+            double observed = entry.getValue() / ((double) numObservations);
+            error += (expected - observed) * (expected - observed);
         }
         return error;
     }
@@ -405,18 +410,17 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         GeometricDistribution distribution = new GeometricDistribution(1.0 / (1.0 + mean));
         for (Map.Entry<Integer, Integer> entry : frequencies.entrySet()) {
             int key = entry.getKey();
-            double expected = distribution.probability(key) * numObservations;
-            double observed = entry.getValue();
-            System.out.println("Geometric \t" + key + "\t" + observed + "\t" + expected);
-            error += Math.sqrt((expected - observed) * (expected - observed));
+            double expected = distribution.probability(key);
+            double observed = entry.getValue() / ((double) numObservations);
+            error += (expected - observed) * (expected - observed);
         }
         return error;
     }
 
     @VisibleForTesting
     List<DataTreeNode> modelFitAnomalyDetection(long targetEpoch, int numObservations,
-            double percentile, boolean doubleToLongBits) {
-        int measurement = 0;
+            boolean doubleToLongBits, boolean raw, double[] percentile) {
+        int measurement;
         int count = 0;
         int mode = -1;
         int modeCount = -1;
@@ -427,8 +431,13 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
          * Fitting to a normal distribution uses the Apache Commons Math implementation.
          */
         double mean = 0.0;
+        double m2 = 0.0;
+        double stddev;
+        double threshold;
+        double gaussianError = Double.POSITIVE_INFINITY;
+        double geometricError = Double.POSITIVE_INFINITY;
+
         Map<Integer,Integer> frequencies = new HashMap<>();
-        List<WeightedObservedPoint> observedPoints = new ArrayList<>(numObservations);
 
         int index = reservoir.length - 1;
         long currentEpoch = minEpoch + index;
@@ -447,6 +456,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
             count++;
             double delta = value - mean;
             mean += delta / count;
+            m2 += delta * (value - mean);
         }
 
         while (count < numObservations) {
@@ -455,6 +465,13 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
             count++;
             double delta = value - mean;
             mean += delta / count;
+            m2 += delta * (value - mean);
+        }
+
+        if (count < 2) {
+            stddev = 0.0;
+        } else {
+            stddev = Math.sqrt(m2 / count);
         }
 
         for (Map.Entry<Integer,Integer> entry : frequencies.entrySet()) {
@@ -464,41 +481,61 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                 modeCount = occurrences;
                 mode = element;
             }
-            observedPoints.add(new WeightedObservedPoint(1.0, element, occurrences));
         }
 
-        double[] gaussianParameters = GaussianCurveFitter.create().fit(observedPoints);
-        Gaussian.Parametric gaussianParametric = new Gaussian.Parametric();
-        double gaussianError = gaussianEuclidianDistance(gaussianParametric, gaussianParameters, observedPoints);
-        double geometricError = geometricEuclidianDistance(frequencies, numObservations, mean);
+        if (mean > 0.0) {
+            geometricError = geometricEuclidianDistance(frequencies, numObservations, mean);
+            if (stddev > 0.0) {
+                gaussianError = gaussianEuclidianDistance(frequencies, numObservations, mean, stddev);
+            }
+        }
+
+        if (percentile == null || percentile.length == 0 || mean == 0.0) {
+            threshold = -1.0;
+        } else if (gaussianError < geometricError) {
+            NormalDistribution distribution = new NormalDistribution(mean, stddev);
+            threshold = distribution.inverseCumulativeProbability(0.50 +
+                ((percentile.length == 1) ? percentile[0] : percentile[1]));
+        } else {
+            ExponentialDistribution distribution = new ExponentialDistribution(1.0 / (1.0 + mean));
+            threshold = distribution.inverseCumulativeProbability(percentile[0]);
+        }
 
         List<DataTreeNode> result = new ArrayList<>();
-        List<DataTreeNode> valuesChildren = new ArrayList<>();
-        List<DataTreeNode> gaussianChildren = new ArrayList<>();
-        List<DataTreeNode> geometricChildren = new ArrayList<>();
+        VirtualTreeNode vchild, vparent;
 
-        valuesChildren.add(new VirtualTreeNode("measurement", measurement));
-        valuesChildren.add(new VirtualTreeNode("mode", mode));
-        gaussianChildren.add(new VirtualTreeNode("norm", generateValue(gaussianParameters[0], doubleToLongBits)));
-        gaussianChildren.add(new VirtualTreeNode("mean", generateValue(gaussianParameters[1], doubleToLongBits)));
-        gaussianChildren.add(new VirtualTreeNode("stddev", generateValue(gaussianParameters[2], doubleToLongBits)));
-        gaussianChildren.add(new VirtualTreeNode("error", generateValue(gaussianError, doubleToLongBits)));
-        geometricChildren.add(new VirtualTreeNode("success", generateValue(1.0 / (1.0 + mean), doubleToLongBits)));
-        geometricChildren.add(new VirtualTreeNode("error", generateValue(geometricError, doubleToLongBits)));
-        VirtualTreeNode gaussianNode = new VirtualTreeNode("gaussian", 1L, gaussianChildren.toArray(new VirtualTreeNode[0]));
-        VirtualTreeNode geometricNode = new VirtualTreeNode("geometric", 1L, geometricChildren.toArray(new VirtualTreeNode[0]));
-        VirtualTreeNode valuesNode = new VirtualTreeNode("values", 1L, valuesChildren.toArray(new VirtualTreeNode[0]));
-        VirtualTreeNode[] subtreeChildren = new VirtualTreeNode[3];
-        subtreeChildren[0] = gaussianNode;
-        subtreeChildren[1] = geometricNode;
-        subtreeChildren[2] = valuesNode;
-        DataTreeNode subtree = new VirtualTreeNode("subtree", 1L, subtreeChildren);
-        result.add(subtree);
+        if (measurement > threshold) {
+            vchild = new VirtualTreeNode("gaussianError",
+                    generateValue(gaussianError, doubleToLongBits));
+            vparent = new VirtualTreeNode("geometricError",
+                    generateValue(geometricError, doubleToLongBits), generateSingletonArray(vchild));
+            vchild = vparent;
+            vparent = new VirtualTreeNode("mode",
+                    generateValue(mode, doubleToLongBits), generateSingletonArray(vchild));
+            vchild = vparent;
+            vparent = new VirtualTreeNode("stddev",
+                    generateValue(stddev, doubleToLongBits), generateSingletonArray(vchild));
+            vchild = vparent;
+            vparent = new VirtualTreeNode("mean",
+                    generateValue(mean, doubleToLongBits), generateSingletonArray(vchild));
+            vchild = vparent;
+            vparent = new VirtualTreeNode("measurement",
+                    measurement, generateSingletonArray(vchild));
+            vchild = vparent;
+            vparent = new VirtualTreeNode("delta",
+                    generateValue(measurement - threshold, doubleToLongBits), generateSingletonArray(vchild));
+            result.add(vparent);
+            if (raw) {
+                addRawObservations(result, targetEpoch, numObservations);
+            }
+        } else {
+            makeDefaultNodes(raw, targetEpoch, numObservations);
+        }
         return result;
     }
 
-    private List<DataTreeNode> sigmaAnomalyDetection(long targetEpoch, int numObservations, double sigma,
-            boolean doubleToLongBits, int minMeasurement, boolean raw) {
+    private List<DataTreeNode> sigmaAnomalyDetection(long targetEpoch, int numObservations, boolean doubleToLongBits, boolean raw, double sigma,
+            int minMeasurement) {
 
         int measurement;
         if (targetEpoch < 0) {
