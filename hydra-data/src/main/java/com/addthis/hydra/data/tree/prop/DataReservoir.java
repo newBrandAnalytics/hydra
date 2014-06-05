@@ -371,6 +371,8 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                     case "mode":
                         mode = kvvalue;
                         break;
+                    default:
+                        throw new RuntimeException("Unknown key " + kvkey);
                 }
             }
         }
@@ -424,6 +426,20 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         int count = 0;
         int mode = -1;
         int modeCount = -1;
+
+        if (targetEpoch < 0) {
+            return makeDefaultNodes(raw, targetEpoch, numObservations);
+        } else if (numObservations <= 0) {
+            return makeDefaultNodes(raw, targetEpoch, numObservations);
+        } else if (reservoir == null) {
+            return makeDefaultNodes(raw, targetEpoch, numObservations);
+        } else if (targetEpoch < minEpoch) {
+            return makeDefaultNodes(raw, targetEpoch, numObservations);
+        } else if (targetEpoch >= minEpoch + reservoir.length) {
+            return makeDefaultNodes(raw, targetEpoch, numObservations);
+        } else if (numObservations > (reservoir.length - 1)) {
+            return makeDefaultNodes(raw, targetEpoch, numObservations);
+        }
 
         /**
          * Fitting to a geometric distribution uses the mean value of the sample.
@@ -510,8 +526,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
             vparent = new VirtualTreeNode("geometricError",
                     generateValue(geometricError, doubleToLongBits), generateSingletonArray(vchild));
             vchild = vparent;
-            vparent = new VirtualTreeNode("mode",
-                    generateValue(mode, doubleToLongBits), generateSingletonArray(vchild));
+            vparent = new VirtualTreeNode("mode", mode, generateSingletonArray(vchild));
             vchild = vparent;
             vparent = new VirtualTreeNode("stddev",
                     generateValue(stddev, doubleToLongBits), generateSingletonArray(vchild));
