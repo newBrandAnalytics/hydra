@@ -35,10 +35,10 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.math.DoubleMath;
 
-import org.apache.commons.math3.analysis.function.Gaussian;
 import org.apache.commons.math3.distribution.ExponentialDistribution;
-import org.apache.commons.math3.distribution.GeometricDistribution;
+import org.apache.commons.math3.distribution.GammaDistribution;
 import org.apache.commons.math3.distribution.NormalDistribution;
+import org.apache.commons.math3.stat.inference.KolmogorovSmirnovTest;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -394,29 +394,20 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         frequencies.put(value, count + 1);
     }
 
-    private double gaussianEuclidianDistance(Map<Integer, Integer> frequencies, int numObservations,
-            double mean, double stddev) {
-        double error = 0.0;
-        Gaussian distribution = new Gaussian(mean, stddev);
-        for (Map.Entry<Integer, Integer> entry : frequencies.entrySet()) {
-            int key = entry.getKey();
-            double expected = distribution.value(key);
-            double observed = entry.getValue() / ((double) numObservations);
-            error += (expected - observed) * (expected - observed);
-        }
-        return error;
+    private double oneSidedGrubbsTest(double min, double mean, double stddev) {
+        return (mean - min) / stddev;
     }
 
-    private double geometricEuclidianDistance(Map<Integer, Integer> frequencies, int numObservations, double mean) {
-        double error = 0.0;
-        GeometricDistribution distribution = new GeometricDistribution(1.0 / (1.0 + mean));
-        for (Map.Entry<Integer, Integer> entry : frequencies.entrySet()) {
-            int key = entry.getKey();
-            double expected = distribution.probability(key);
-            double observed = entry.getValue() / ((double) numObservations);
-            error += (expected - observed) * (expected - observed);
-        }
-        return error;
+    private double gaussianKSTest(double[] observations, double mean, double stddev) {
+        NormalDistribution distribution = new NormalDistribution(mean, stddev);
+        KolmogorovSmirnovTest test = new KolmogorovSmirnovTest();
+        return test.kolmogorovSmirnovTest(distribution, observations);
+    }
+
+    private double exponentialKSTest(double[] observations, double mean) {
+        ExponentialDistribution distribution = new ExponentialDistribution(mean);
+        KolmogorovSmirnovTest test = new KolmogorovSmirnovTest();
+        return test.kolmogorovSmirnovTest(distribution, observations);
     }
 
     @VisibleForTesting
@@ -424,8 +415,9 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
             boolean doubleToLongBits, boolean raw, double[] percentile) {
         int measurement;
         int count = 0;
+        int min = Integer.MAX_VALUE;
         int mode = -1;
-        int modeCount = -1;
+        int modeCount = Integer.MIN_VALUE;
 
         if (targetEpoch < 0) {
             return makeDefaultNodes(raw, targetEpoch, numObservations);
@@ -450,9 +442,8 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         double m2 = 0.0;
         double stddev;
         double threshold;
-        double gaussianError = Double.POSITIVE_INFINITY;
-        double geometricError = Double.POSITIVE_INFINITY;
 
+        double[] observations = new double[numObservations];
         Map<Integer,Integer> frequencies = new HashMap<>();
 
         int index = reservoir.length - 1;
@@ -468,8 +459,11 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
 
         while (count < numObservations && index >= 0) {
             int value = reservoir[index--];
+            if (value < min) {
+                min = value;
+            }
             updateFrequencies(frequencies, value);
-            count++;
+            observations[count++] = value;
             double delta = value - mean;
             mean += delta / count;
             m2 += delta * (value - mean);
@@ -477,8 +471,11 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
 
         while (count < numObservations) {
             int value = 0;
+            if (value < min) {
+                min = value;
+            }
             updateFrequencies(frequencies, value);
-            count++;
+            observations[count++] = value;
             double delta = value - mean;
             mean += delta / count;
             m2 += delta * (value - mean);
@@ -490,30 +487,21 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
             stddev = Math.sqrt(m2 / count);
         }
 
-        for (Map.Entry<Integer,Integer> entry : frequencies.entrySet()) {
-            int element = entry.getKey();
-            int occurrences = entry.getValue();
-            if (occurrences > modeCount) {
-                modeCount = occurrences;
-                mode = element;
-            }
-        }
-
-        if (mean > 0.0) {
-            geometricError = geometricEuclidianDistance(frequencies, numObservations, mean);
-            if (stddev > 0.0) {
-                gaussianError = gaussianEuclidianDistance(frequencies, numObservations, mean, stddev);
+        for(Map.Entry<Integer,Integer> entry : frequencies.entrySet()) {
+            if (entry.getValue() > modeCount) {
+                modeCount = entry.getValue();
+                mode = entry.getKey();
             }
         }
 
         if (percentile == null || percentile.length == 0 || mean == 0.0) {
             threshold = -1.0;
-        } else if (gaussianError < geometricError) {
+        } else if (mode > 0) {
             NormalDistribution distribution = new NormalDistribution(mean, stddev);
             threshold = distribution.inverseCumulativeProbability(0.50 +
                 ((percentile.length == 1) ? percentile[0] : percentile[1]));
         } else {
-            ExponentialDistribution distribution = new ExponentialDistribution(1.0 / (1.0 + mean));
+            ExponentialDistribution distribution = new ExponentialDistribution(mean);
             threshold = distribution.inverseCumulativeProbability(percentile[0]);
         }
 
@@ -521,13 +509,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         VirtualTreeNode vchild, vparent;
 
         if (measurement > threshold) {
-            vchild = new VirtualTreeNode("gaussianError",
-                    generateValue(gaussianError, doubleToLongBits));
-            vparent = new VirtualTreeNode("geometricError",
-                    generateValue(geometricError, doubleToLongBits), generateSingletonArray(vchild));
-            vchild = vparent;
-            vparent = new VirtualTreeNode("mode", mode, generateSingletonArray(vchild));
-            vchild = vparent;
+            vchild = new VirtualTreeNode("mode", mode);
             vparent = new VirtualTreeNode("stddev",
                     generateValue(stddev, doubleToLongBits), generateSingletonArray(vchild));
             vchild = vparent;
