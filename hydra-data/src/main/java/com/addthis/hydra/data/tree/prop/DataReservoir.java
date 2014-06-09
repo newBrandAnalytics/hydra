@@ -328,7 +328,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         long targetEpoch = -1;
         int numObservations = -1;
         double sigma = Double.POSITIVE_INFINITY;
-        double[] percentile = null;
+        int percentile = 0;
         boolean doubleToLongBits = false;
         int minMeasurement = Integer.MIN_VALUE;
         boolean raw = false;
@@ -361,12 +361,8 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                     case "raw":
                         raw = Boolean.parseBoolean(kvvalue);
                         break;
-                    case "percentiles":
-                        String[] components = kvvalue.split(",");
-                        percentile = new double[components.length];
-                        for (int i = 0; i < components.length; i++) {
-                            percentile[i] = Double.parseDouble(components[i]);
-                        }
+                    case "percentile":
+                        percentile = Integer.parseInt(kvvalue);
                         break;
                     case "mode":
                         mode = kvvalue;
@@ -394,30 +390,17 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         frequencies.put(value, count + 1);
     }
 
-    private double oneSidedGrubbsTest(double min, double mean, double stddev) {
-        return (mean - min) / stddev;
-    }
-
-    private double gaussianKSTest(double[] observations, double mean, double stddev) {
+    private double gaussianNegativeProbability(double mean, double stddev) {
         NormalDistribution distribution = new NormalDistribution(mean, stddev);
-        KolmogorovSmirnovTest test = new KolmogorovSmirnovTest();
-        return test.kolmogorovSmirnovTest(distribution, observations);
-    }
-
-    private double exponentialKSTest(double[] observations, double mean) {
-        ExponentialDistribution distribution = new ExponentialDistribution(mean);
-        KolmogorovSmirnovTest test = new KolmogorovSmirnovTest();
-        return test.kolmogorovSmirnovTest(distribution, observations);
+        return distribution.cumulativeProbability(0.0);
     }
 
     @VisibleForTesting
     List<DataTreeNode> modelFitAnomalyDetection(long targetEpoch, int numObservations,
-            boolean doubleToLongBits, boolean raw, double[] percentile) {
+            boolean doubleToLongBits, boolean raw, int percentile) {
         int measurement;
         int count = 0;
         int min = Integer.MAX_VALUE;
-        int mode = -1;
-        int modeCount = Integer.MIN_VALUE;
 
         if (targetEpoch < 0) {
             return makeDefaultNodes(raw, targetEpoch, numObservations);
@@ -441,10 +424,9 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
         double mean = 0.0;
         double m2 = 0.0;
         double stddev;
-        double threshold;
-
-        double[] observations = new double[numObservations];
+        double gaussianNegative = -1.0;
         Map<Integer,Integer> frequencies = new HashMap<>();
+        double threshold;
 
         int index = reservoir.length - 1;
         long currentEpoch = minEpoch + index;
@@ -463,7 +445,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                 min = value;
             }
             updateFrequencies(frequencies, value);
-            observations[count++] = value;
+            count++;
             double delta = value - mean;
             mean += delta / count;
             m2 += delta * (value - mean);
@@ -475,7 +457,7 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
                 min = value;
             }
             updateFrequencies(frequencies, value);
-            observations[count++] = value;
+            count++;
             double delta = value - mean;
             mean += delta / count;
             m2 += delta * (value - mean);
@@ -487,29 +469,44 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
             stddev = Math.sqrt(m2 / count);
         }
 
+        int mode = -1;
+        int modeCount = -1;
+
         for(Map.Entry<Integer,Integer> entry : frequencies.entrySet()) {
-            if (entry.getValue() > modeCount) {
-                modeCount = entry.getValue();
-                mode = entry.getKey();
+            int key = entry.getKey();
+            int value = entry.getValue();
+            if (value > modeCount || (value == modeCount && key > mode)) {
+                mode = key;
+                modeCount = value;
             }
         }
 
-        if (percentile == null || percentile.length == 0 || mean == 0.0) {
+        if (mean > 0.0 && stddev > 0.0) {
+            gaussianNegative = gaussianNegativeProbability(mean, stddev);
+        }
+
+        if (percentile == 0.0) {
             threshold = -1.0;
-        } else if (mode > 0) {
+        } else if (mean == 0.0) {
+            threshold = 0.0;
+        } else if (stddev == 0.0) {
+            threshold = mean;
+        } else if (mean > 1.0) {
             NormalDistribution distribution = new NormalDistribution(mean, stddev);
-            threshold = distribution.inverseCumulativeProbability(0.50 +
-                ((percentile.length == 1) ? percentile[0] : percentile[1]));
+            threshold = distribution.inverseCumulativeProbability(percentile / 100.0);
         } else {
             ExponentialDistribution distribution = new ExponentialDistribution(mean);
-            threshold = distribution.inverseCumulativeProbability(percentile[0]);
+            threshold = distribution.inverseCumulativeProbability(percentile / 100.0);
         }
 
         List<DataTreeNode> result = new ArrayList<>();
         VirtualTreeNode vchild, vparent;
 
         if (measurement > threshold) {
-            vchild = new VirtualTreeNode("mode", mode);
+            vchild = new VirtualTreeNode("gaussianNegative",
+                    generateValue(gaussianNegative, doubleToLongBits));
+            vparent = new VirtualTreeNode("mode", mode, generateSingletonArray(vchild));
+            vchild = vparent;
             vparent = new VirtualTreeNode("stddev",
                     generateValue(stddev, doubleToLongBits), generateSingletonArray(vchild));
             vchild = vparent;

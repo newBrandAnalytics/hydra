@@ -332,6 +332,8 @@ public class DataReservoirTest {
         return null;
     }
 
+    private static final String[] gNegativePath = {"delta", "measurement", "mean", "stddev", "mode", "gaussianNegative"};
+
     @Test
     public void testModelFitting() {
         DataReservoir reservoir = new DataReservoir();
@@ -345,7 +347,8 @@ public class DataReservoirTest {
         reservoir.updateReservoir(8, 10, 0);
         reservoir.updateReservoir(9, 10, 1);
         reservoir.updateReservoir(10, 10, 1);
-        List<DataTreeNode> result = reservoir.modelFitAnomalyDetection(10, 9, true, true, null);
+        List<DataTreeNode> result = reservoir.modelFitAnomalyDetection(10, 9, true, true, 0);
+        DataTreeNode gaussianNegative = retrieveNode(result.iterator(), gNegativePath);
         reservoir = new DataReservoir();
         reservoir.updateReservoir(1, 10, 10);
         reservoir.updateReservoir(2, 10, 10);
@@ -357,7 +360,8 @@ public class DataReservoirTest {
         reservoir.updateReservoir(8, 10, 10);
         reservoir.updateReservoir(9, 10, 9);
         reservoir.updateReservoir(10, 10, 1);
-        result = reservoir.modelFitAnomalyDetection(10, 9, true, true, null);
+        result = reservoir.modelFitAnomalyDetection(10, 9, true, true, 0);
+        gaussianNegative = retrieveNode(result.iterator(), gNegativePath);
     }
 
 }
