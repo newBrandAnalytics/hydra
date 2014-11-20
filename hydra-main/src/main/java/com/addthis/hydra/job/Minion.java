@@ -29,6 +29,8 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 
+import java.nio.file.DirectoryStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -2515,25 +2517,38 @@ public class Minion extends AbstractHandler implements MessageListener, Codec.Co
     }
 
     public static class FileStats {
+      private static final Logger log = LoggerFactory.getLogger(FileStats.class);
 
-        public long count;
-        public long bytes;
+      public long count;
+      public long bytes;
 
-        private void update(File dir) {
-            if (dir != null) {
-                for (File file : dir.listFiles()) {
-                    if (file.isDirectory()) {
-                        update(file);
-                    } else if (file.isFile()) {
-                        count++;
-                        bytes += file.length();
-                    }
-                }
-            } else {
-                count = 0;
-                bytes = 0;
-            }
+      void update(File dir) {
+        try {
+          update(dir.toPath());
+        } catch (IOException e) {
+          log.warn("Exception while scanning task files; treating directory as empty", e);
+          count = 0;
+          bytes = 0;
         }
+      }
+
+      void update(Path dir) throws IOException {
+        if (dir != null) {
+          try (DirectoryStream<Path> directoryStream = java.nio.file.Files.newDirectoryStream(dir)) {
+            for (Path file : directoryStream) {
+              if (java.nio.file.Files.isDirectory(file)) {
+                update(file);
+              } else if (java.nio.file.Files.isRegularFile(file)) {
+                count++;
+                bytes += java.nio.file.Files.size(file);
+              }
+            }
+          }
+        } else {
+          count = 0;
+          bytes = 0;
+        }
+      }
     }
 
     @Override
