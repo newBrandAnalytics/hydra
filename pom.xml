@@ -78,8 +78,8 @@
     <hydra.dep.compress.snappy-java.version>1.0.4.1</hydra.dep.compress.snappy-java.version>
     <hydra.dep.compress.lzma-java.version>1.2</hydra.dep.compress.lzma-java.version>
     <hydra.dep.compress.apache.commons-compress.version>1.6</hydra.dep.compress.apache.commons-compress.version>
-
     <hydra.dep.sleepycat.je.version>5.0.73</hydra.dep.sleepycat.je.version>
+    <hydra.dep.io.netty.version>4.0.25.Final</hydra.dep.io.netty.version>
   </properties>
 
   <build>
@@ -221,6 +221,11 @@
       <artifactId>org.eclipse.jgit</artifactId>
       <version>3.0.0.201306101825-r</version>
     </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-all</artifactId>
+       <version>${hydra.dep.io.netty.version}</version>
+    </dependency>
 
     <!-- addthis oss -->
     <dependency>
@@ -244,6 +249,44 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.addthis</groupId>
+        <artifactId>codec</artifactId>
+        <version>${hydra.dep.codec.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-buffer</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>com.addthis</groupId>
+        <artifactId>meshy</artifactId>
+        <version>${hydra.dep.meshy.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>io.netty</groupId>
+            <artifactId>netty</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>com.addthis</groupId>
+        <artifactId>muxy</artifactId>
+        <version>${hydra.dep.muxy.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-buffer</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <reporting>
     <plugins>
