@@ -63,7 +63,8 @@ import io.netty.channel.ChannelProgressivePromise;
  * <p>This query operation <span class="hydra-summary">performs a disk-backed sort</span>.
  * <p/>
  * <p>The syntax is dsort=[cols]:[type]:[direction]. [cols] is one or more columns
- * separated by commas. Type is a sequence of either "n" for numeric or "s" for string.
+ * separated by commas. Type is a sequence of
+ * ["i" or "l" or "n"] for integer number, ["d" or "f"] for floating point number, or "s" for string.
  * Direction is a sequence of either "a" for ascending or "d" for descending. The lengths
  * of [type] and [direction] must be equal to the number of column specified.
  * <p/>
@@ -110,12 +111,19 @@ public class OpDiskSort extends AbstractRowOp {
     public OpDiskSort(String args, String tempDirString, ChannelProgressivePromise queryPromise) {
         super(queryPromise);
         this.queryPromise = queryPromise;
-        init(args, tempDirString);
+        this.tempDir = Paths.get(tempDirString, String.valueOf(UUID.randomUUID()));
+        init(args);
     }
 
-    private void init(String args, String tempDirString) {
+    public OpDiskSort(String args, Path tempDir, ChannelProgressivePromise queryPromise) {
+        super(queryPromise);
+        this.queryPromise = queryPromise;
+        this.tempDir = tempDir.resolve(String.valueOf(UUID.randomUUID()));
+        init(args);
+    }
+
+    private void init(String args) {
         try {
-            tempDir = Paths.get(tempDirString, String.valueOf(UUID.randomUUID()));
             Files.createDirectories(tempDir);
             mfm = new MuxFileDirectory(tempDir, DISCARDER);
             mfm.setDeleteFreed(true);
@@ -146,9 +154,6 @@ public class OpDiskSort extends AbstractRowOp {
     @Override
     public void close() throws IOException {
         cleanup();
-        if (getNext() != null) {
-            getNext().close();
-        }
     }
 
     private void cleanup() {

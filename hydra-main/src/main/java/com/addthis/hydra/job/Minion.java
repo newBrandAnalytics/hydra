@@ -29,6 +29,8 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 
+import java.nio.file.DirectoryStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -2493,28 +2495,60 @@ public class Minion extends AbstractHandler implements MessageListener, Codec.Co
                     ", jobDir=" + jobDir +
                     '}';
         }
+
+        /**
+         * Attempt to identify the task's last end status from the file system
+          * @return An integer representing the task's last exit code
+         */
+        public int findLastJobStatus() {
+            if (jobDone != null && jobDone.exists()) {
+                try {
+                    String jobDoneString = Bytes.toString(Files.read(jobDone));
+                    if (jobDoneString == null || jobDoneString.isEmpty()) {
+                        return 0;
+                    }
+                    return Integer.parseInt(jobDoneString.trim());
+                } catch (IOException e) {
+                    return JobTaskErrorCode.EXIT_SCRIPT_EXEC_ERROR;
+                }
+            }
+            return 0;
+        }
     }
 
     public static class FileStats {
+      private static final Logger log = LoggerFactory.getLogger(FileStats.class);
 
-        public long count;
-        public long bytes;
+      public long count;
+      public long bytes;
 
-        private void update(File dir) {
-            if (dir != null) {
-                for (File file : dir.listFiles()) {
-                    if (file.isDirectory()) {
-                        update(file);
-                    } else if (file.isFile()) {
-                        count++;
-                        bytes += file.length();
-                    }
-                }
-            } else {
-                count = 0;
-                bytes = 0;
-            }
+      void update(File dir) {
+        try {
+          update(dir.toPath());
+        } catch (IOException e) {
+          log.warn("Exception while scanning task files; treating directory as empty", e);
+          count = 0;
+          bytes = 0;
         }
+      }
+
+      void update(Path dir) throws IOException {
+        if (dir != null) {
+          try (DirectoryStream<Path> directoryStream = java.nio.file.Files.newDirectoryStream(dir)) {
+            for (Path file : directoryStream) {
+              if (java.nio.file.Files.isDirectory(file)) {
+                update(file);
+              } else if (java.nio.file.Files.isRegularFile(file)) {
+                count++;
+                bytes += java.nio.file.Files.size(file);
+              }
+            }
+          }
+        } else {
+          count = 0;
+          bytes = 0;
+        }
+      }
     }
 
     @Override
@@ -2713,32 +2747,14 @@ public class Minion extends AbstractHandler implements MessageListener, Codec.Co
                     if (!stop.force() && task.isBackingUp()) {
                         log.warn("[task.stop] " + task.getName() + " wasn't terminated because task was backing up and the stop wasn't a kill");
                     } else if (!stop.force() && task.isReplicating() && task.getRebalanceSource() == null) {
-                        log.warn("[task.stop] " + task.getName() + " wasn't terminated because task was replicating up and the stop wasn't a kill");
-                    } else if (!stop.getOnlyIfQueued()) {
+                        log.warn("[task.stop] " + task.getName() + " wasn't terminated because task was replicating and the stop wasn't a kill");
+                    } else {
                         task.stopWait(stop.force());
                         log.warn("[task.stop] " + task.getName());
-                    } else {
-                        log.warn("[task.stop] " + task.getName() + " wasn't terminated because task was running and the stop specified only-if-queued");
                     }
                 } else if (stop.force()) {
-                    log.warn("[task.stop] " + task.getName() + " force stop unmatched");
-                    if (!task.jobDone.getParentFile().exists()) {
-                        log.warn("The directory " + task.jobDone.getParent() + " does not exist.");
-                    } else {
-                        task.createDoneFileIfNoProcessRunning(task.jobPid, task.jobDone);
-                        task.createDoneFileIfNoProcessRunning(task.replicatePid, task.replicateDone);
-                        task.createDoneFileIfNoProcessRunning(task.backupPid, task.backupDone);
-                    }
-                    if (task.jobDone != null && task.jobDone.exists()) {
-                        int endStatus = 0;
-                        try {
-                            // Try to get last end state from done file
-                            endStatus = Integer.parseInt(Bytes.toString(Files.read(task.jobDone)).trim());
-                        } catch (Exception ex) {
-                            // If not, just send 0 so Spawn ends up in a happy state
-                        }
-                        task.sendEndStatus(endStatus);
-                    }
+                    log.warn("[task.stop] " + task.getName() + " force stop idle task");
+                    task.sendEndStatus(task.findLastJobStatus());
                 }
             }
             writeState();
